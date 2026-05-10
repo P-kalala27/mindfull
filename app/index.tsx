@@ -1,129 +1,106 @@
-import {useState}   from "react";
-import {Habit} from "../src/types/habit";
-import {Alert, View, StyleSheet, TextInput, Pressable, FlatList, Text} from "react-native";
-import {Ionicons} from "@expo/vector-icons";
+import { useState, useEffect, useCallback } from 'react';
+import { View, FlatList, Alert, Platform, KeyboardAvoidingView, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { HabitInput } from '../src/components/HabitInput';
+import { HabitCard } from '../src/components/HabitCard';
+import { EmptyState } from '../src/components/EmptyState';
+import { Habit } from '../src/types/habit';
 
-
-
+const STORAGE_KEY = '@mindful_habits';
 
 export default function HomeScreen() {
-    const [habit, setHabit] = useState<Habit[]>([]);
-    const [input, setInput] = useState("");
+    const router = useRouter();
+    const [habits, setHabits] = useState<Habit[]>([]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
 
-    const addHabit = () => {
+    // 1️⃣ Load from storage on mount
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const stored = await AsyncStorage.getItem(STORAGE_KEY);
+                if (stored) setHabits(JSON.parse(stored));
+            } catch (e) {
+                console.error('Failed to load habits:', e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        load();
+    }, []);
+
+    // 2️⃣ Save to storage whenever habits change
+    useEffect(() => {
+        if (!isLoading) {
+            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(habits)).catch(console.error);
+        }
+    }, [habits, isLoading]);
+
+    const addHabit = useCallback(() => {
         const trimmed = input.trim();
-        if(!trimmed) return;
+        if (!trimmed) return;
 
-        const newHabit : Habit = {
+        const newHabit: Habit = {
             id: Date.now().toString(),
             title: trimmed,
             completed: false,
             createdAt: new Date().toISOString(),
-        }
+        };
 
-        setHabit(prev => [newHabit, ...prev]);
-        setInput("");
-    }
+        setHabits(prev => [newHabit, ...prev]);
+        setInput('');
+    }, [input]);
 
-    const toggleHabit = (id: string) => {
-        setHabit(prev => prev.map(h => (h.id === id ? {...h, completed: !h.completed}: h)
-        )
-        )
-    }
+    const toggleHabit = useCallback((id: string) => {
+        setHabits(prev => prev.map(h => (h.id === id ? { ...h, completed: !h.completed } : h)));
+    }, []);
 
-    const deleteHabit = (id: string) => {
+    const deleteHabit = useCallback((id: string) => {
         Alert.alert('Remove habit', 'Are you sure?', [
-            {text: 'Cancel', style: 'cancel'},
-            {text: 'Delete', style: 'destructive', onPress: () => setHabit(prev => prev.filter(h => h.id
-                !== id))}
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => setHabits(prev => prev.filter(h => h.id !== id)) },
         ]);
-    }
+    }, []);
 
-    return(
-        <View style={styles.container}>
-            <View style={styles.inputRow}>
-                <TextInput
-                style={styles.input}
-                placeholder='e.g., read 10 pages'
-                value={input}
-                onChangeText={setInput}
-                onSubmitEditing={addHabit}
-                returnKeyType="done"
-                clearButtonMode="while-editing"
+    return (
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+        >
+            <View style={styles.content}>
+                <View style={styles.headerRow}>
+                    <HabitInput value={input} onChangeText={setInput} onSubmit={addHabit} />
+                </View>
+
+                <FlatList
+                    data={habits}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={styles.list}
+                    ListEmptyComponent={!isLoading ? <EmptyState /> : null}
+                    renderItem={({ item }) => (
+                        <HabitCard item={item} onToggle={toggleHabit} onDelete={deleteHabit} />
+                    )}
                 />
-                <Pressable style={styles.addButton} onPress={addHabit} disabled={!input.trim()}>
-                    <Ionicons name="add" size={24} color="#fff" />
-                </Pressable>
+
+                <View style={styles.moodBtnWrapper}>
+                    <HabitInput
+                        value="📊 Log Mood"
+                        onChangeText={() => {}}
+                        onSubmit={() => router.push('/mood')}
+                    />
+                    {/* Quick hack to reuse button style, we'll refine this in Phase 3 */}
+                </View>
             </View>
-            <FlatList
-                data={habit}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.list}
-                ListEmptyComponent={
-                    <Text style={styles.emptyText}>No habits yet. Start small 🌱</Text>
-                }
-                renderItem={({ item }) => (
-                    <View style={styles.card}>
-                        <Pressable onPress={() => toggleHabit(item.id)} style={styles.checkbox}>
-                            <Ionicons
-                                name={item.completed ? 'checkmark-circle' : 'ellipse-outline'}
-                                size={24}
-                                color={item.completed ? '#10b981' : '#94a3b8'}
-                            />
-                        </Pressable>
-
-                        <Text style={[styles.title, item.completed && styles.completed]}>
-                            {item.title}
-                        </Text>
-
-                        <Pressable onPress={() => deleteHabit(item.id)} style={styles.deleteBtn}>
-                            <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                        </Pressable>
-                    </View>
-                )}
-            />
-        </View>
-    )
+        </KeyboardAvoidingView>
+    );
 }
 
-
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-    inputRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-    input: {
-        flex: 1,
-        backgroundColor: 'white',
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        fontSize: 16,
-    },
-    addButton: {
-        backgroundColor: '#3b82f6',
-        borderRadius: 12,
-        width: 48,
-        justifyContent: 'center',
-        alignItems: 'center',
-        opacity: 0.5,
-    },
-    list: { paddingBottom: 40 },
-    emptyText: { textAlign: 'center', marginTop: 60, color: '#94a3b8', fontSize: 16 },
-    card: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'white',
-        padding: 14,
-        borderRadius: 12,
-        marginBottom: 10,
-        shadowColor: '#000',
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
-        elevation: 2,
-    },
-    checkbox: { marginRight: 12 },
-    title: { flex: 1, fontSize: 16, fontWeight: '500', color: '#1e293b' },
-    completed: { textDecorationLine: 'line-through', color: '#94a3b8' },
-    deleteBtn: { padding: 6 },
+    container: { flex: 1, backgroundColor: '#f8fafc' },
+    content: { flex: 1, padding: 16 },
+    headerRow: { marginBottom: 10 },
+    list: { paddingBottom: 20 },
+    moodBtnWrapper: { marginTop: 20 },
 });
